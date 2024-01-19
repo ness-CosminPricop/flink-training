@@ -19,6 +19,8 @@
 package org.apache.flink.training.exercises.ridesandfares;
 
 import org.apache.flink.api.common.JobExecutionResult;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -99,19 +101,38 @@ public class RidesAndFaresExercise {
     public static class EnrichmentFunction
             extends RichCoFlatMapFunction<TaxiRide, TaxiFare, RideAndFare> {
 
+        private transient ValueState<TaxiRide> rideValueState;
+        private transient ValueState<TaxiFare> fareValueState;
+
         @Override
-        public void open(Configuration config) throws Exception {
-            throw new MissingSolutionException();
+        public void open(Configuration config) {
+
+            rideValueState = getRuntimeContext().getState(new ValueStateDescriptor<>("ride state", TaxiRide.class));
+            fareValueState = getRuntimeContext().getState(new ValueStateDescriptor<>("fare state", TaxiFare.class));
         }
 
         @Override
         public void flatMap1(TaxiRide ride, Collector<RideAndFare> out) throws Exception {
-            throw new MissingSolutionException();
+
+            TaxiFare fare = fareValueState.value();
+            if (fare != null) {
+                out.collect(new RideAndFare(ride, fare));
+                fareValueState.clear();
+            } else {
+                rideValueState.update(ride);
+            }
         }
 
         @Override
         public void flatMap2(TaxiFare fare, Collector<RideAndFare> out) throws Exception {
-            throw new MissingSolutionException();
+
+            TaxiRide ride = rideValueState.value();
+            if (ride != null) {
+                out.collect(new RideAndFare(ride, fare));
+                rideValueState.clear();
+            } else {
+                fareValueState.update(fare);
+            }
         }
     }
 }

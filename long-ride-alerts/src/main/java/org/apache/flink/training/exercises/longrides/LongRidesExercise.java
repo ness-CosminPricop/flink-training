@@ -21,6 +21,8 @@ package org.apache.flink.training.exercises.longrides;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -30,7 +32,6 @@ import org.apache.flink.streaming.api.functions.sink.SinkFunction;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.training.exercises.common.datatypes.TaxiRide;
 import org.apache.flink.training.exercises.common.sources.TaxiRideGenerator;
-import org.apache.flink.training.exercises.common.utils.MissingSolutionException;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -98,17 +99,56 @@ public class LongRidesExercise {
     @VisibleForTesting
     public static class AlertFunction extends KeyedProcessFunction<Long, TaxiRide, Long> {
 
+        private transient ValueState<TaxiRide> rideState;
+        private Duration timeForAlert = Duration.ofHours(2);
+
         @Override
-        public void open(Configuration config) throws Exception {
-            throw new MissingSolutionException();
+        public void open(Configuration config) {
+            ValueStateDescriptor<TaxiRide> rideStateDesc = new ValueStateDescriptor<>("ride state", TaxiRide.class);
+            rideState = getRuntimeContext().getState(rideStateDesc);
         }
 
         @Override
-        public void processElement(TaxiRide ride, Context context, Collector<Long> out)
-                throws Exception {}
+        public void processElement(TaxiRide ride, Context context, Collector<Long> out) throws Exception {
+
+            TaxiRide previousRide = rideState.value();
+
+            if (previousRide != null) { // compare it to the current ride in terms of event times
+                if (ride.isStart) {
+                    if (rideTooLong(ride, previousRide))
+                        out.collect(ride.rideId);
+                } else {
+                    if (rideTooLong(previousRide, ride))
+                        out.collect(previousRide.rideId);
+                }
+                context.timerService().deleteEventTimeTimer(getTimerTime(previousRide));
+
+                rideState.clear();
+            } else {
+                // save the current ride in state
+                rideState.update(ride);
+
+                // initialize timer
+                context.timerService().registerEventTimeTimer(getTimerTime(ride));
+            }
+        }
 
         @Override
-        public void onTimer(long timestamp, OnTimerContext context, Collector<Long> out)
-                throws Exception {}
+        public void onTimer(long timestamp, OnTimerContext context, Collector<Long> out) throws Exception{
+
+            out.collect(rideState.value().rideId);
+
+            rideState.clear();
+        }
+
+        private boolean rideTooLong(TaxiRide startEvent, TaxiRide endEvent) {
+
+            return Duration.between(startEvent.eventTime, endEvent.eventTime).compareTo(timeForAlert) > 0;
+        }
+
+        private long getTimerTime(TaxiRide ride) throws RuntimeException {
+
+            return ride.eventTime.plusSeconds(timeForAlert.getSeconds()).toEpochMilli();
+        }
     }
 }
