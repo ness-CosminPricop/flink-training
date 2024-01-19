@@ -99,8 +99,8 @@ public class LongRidesExercise {
     @VisibleForTesting
     public static class AlertFunction extends KeyedProcessFunction<Long, TaxiRide, Long> {
 
-        private ValueState<TaxiRide> rideState;
-        private Duration TIME_FOR_ALERT = Duration.ofHours(2);
+        private transient ValueState<TaxiRide> rideState;
+        private Duration timeForAlert = Duration.ofHours(2);
 
         @Override
         public void open(Configuration config) {
@@ -143,12 +143,12 @@ public class LongRidesExercise {
 
         private boolean rideTooLong(TaxiRide startEvent, TaxiRide endEvent) {
 
-            return Duration.between(startEvent.eventTime, endEvent.eventTime).compareTo(TIME_FOR_ALERT) > 0;
+            return Duration.between(startEvent.eventTime, endEvent.eventTime).compareTo(timeForAlert) > 0;
         }
 
         private long getTimerTime(TaxiRide ride) throws RuntimeException {
 
-            return ride.eventTime.plusSeconds(TIME_FOR_ALERT.getSeconds()).toEpochMilli();
+            return ride.eventTime.plusSeconds(timeForAlert.getSeconds()).toEpochMilli();
         }
     }
 }
